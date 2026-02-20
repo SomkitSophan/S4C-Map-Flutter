@@ -1,8 +1,0 @@
-{"logTime": "0220/071414", {"lineNo":0,"logLevel":2,"message":"MaybeOrchestrateMigration: MaybeOrchestrateMigration","source":"Workspace Migration","timestamp":"2026-02-20T07:14:14.195Z"}}
-{"logTime": "0220/071414", {"lineNo":0,"logLevel":2,"message":"Migrate_FeatureCheck: Migrate_FeatureCheck","source":"Workspace Migration","timestamp":"2026-02-20T07:14:14.195Z"}}
-{"logTime": "0220/071414", {"lineNo":0,"logLevel":2,"message":"MaybeWaitForPrefsToSync: Waiting for prefs to sync.","source":"Workspace Migration","timestamp":"2026-02-20T07:14:14.195Z"}}
-{"logTime": "0220/071414", {"lineNo":0,"logLevel":2,"message":"MaybeOrchestrateMigration: ~MaybeOrchestrateMigration","source":"Workspace Migration","timestamp":"2026-02-20T07:14:14.195Z"}}
-{"logTime": "0220/071416", {"lineNo":0,"logLevel":2,"message":"Migrate_MaybeHavePrefs: Migrate_MaybeHavePrefs","source":"Workspace Migration","timestamp":"2026-02-20T07:14:16.702Z"}}
-{"logTime": "0220/071416", {"lineNo":0,"logLevel":2,"message":"Migrate_Schedule: Migrate_Schedule","source":"Workspace Migration","timestamp":"2026-02-20T07:14:16.702Z"}}
-{"logTime": "0220/071416", {"lineNo":0,"logLevel":2,"message":"Migrate_Schedule: Migration already completed for this profile","source":"Workspace Migration","timestamp":"2026-02-20T07:14:16.702Z"}}
-{"logTime": "0220/071610", {"lineNo":0,"logLevel":2,"message":"WorkspaceManager: count of workspaces on close: 0","source":"Fluid Local Collaborator","timestamp":"2026-02-20T07:16:10.121Z"}}
