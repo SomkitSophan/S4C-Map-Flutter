@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:math' as math;
 
 void main() {
@@ -13,7 +14,7 @@ class MainApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'S\u{2084} Computed Maps',
+      title: 'S\u{2084} Computed Map',
       debugShowCheckedModeBanner: false, // ปิดป้าย debug มุมขวาบน
       theme: ThemeData(primaryColor: Colors.blue[900]),
       home: SatelliteMapPage(),
@@ -197,7 +198,7 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
         ],
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         mainAxisSize: MainAxisSize.min,
         children: [
           const SizedBox(width: 0),
@@ -206,7 +207,17 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
           _buildLegendItem(Color.fromARGB(255, 251, 191, 36), 'Medium'),
           const SizedBox(width: 8),
           _buildLegendItem(Color.fromARGB(255, 239, 68, 68), 'High'),
-          const SizedBox(width: 0),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            color: Colors.black87,
+            tooltip: 'Information',
+            onPressed: () {
+              // เปิดลิงก์ไปยังหน้าเว็บที่มีข้อมูลเพิ่มเติมเกี่ยวกับสถานะดาวเทียม
+              const url = 'https://www.gnss.com/gnss-satellite-status/';
+              launchUrl(Uri.parse(url));
+            },
+          ),
         ],
       ),
     );
