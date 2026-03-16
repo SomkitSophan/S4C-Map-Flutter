@@ -20,3 +20,15 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/TP00_S4C_last15min.json
+    - assets/CHAN_S4C_last15min.json
+    - assets/CHMA_S4C_last15min.json
+    - assets/DPT9_S4C_last15min.json
+    - assets/NKSW_S4C_last15min.json
+    - assets/PJRK_S4C_last15min.json
+    - assets/SISK_S4C_last15min.json
+    - assets/SOKA_S4C_last15min.json
+    - assets/SRTN_S4C_last15min.json
+    - assets/UDON_S4C_last15min.json
+    - assets/UTTD_S4C_last15min.json

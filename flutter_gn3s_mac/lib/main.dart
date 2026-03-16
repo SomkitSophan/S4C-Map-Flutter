@@ -3,6 +3,10 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:math' as math;
+import 'dart:async';
+import 'dart:convert';
+import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 
 void main() {
   runApp(const MainApp());
@@ -33,14 +37,18 @@ class SatelliteMapPage extends StatefulWidget {
 
 // 1. สร้าง Model สำหรับเก็บข้อมูลดาวเทียม
 class SatelliteData {
-  final String prn; // รหัสดาวเทียม เช่น G01, R05
+  final String sv; // รหัสดาวเทียม เช่น G01, R05
   LatLng position; // พิกัดปัจจุบัน
   int status; // สถานะ:1=Low,2=Medium,3=High (ใช้สำหรับกำหนดสี)
+  DateTime datetime; // เวลาที่บันทึกข้อมูล
+  final String station; // สถานีที่บันทึกข้อมูล
 
   SatelliteData({
-    required this.prn,
+    required this.sv,
     required this.position,
     required this.status,
+    required this.datetime,
+    required this.station,
   });
 }
 
@@ -68,24 +76,129 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
   ];
   // กำหนดความกว้างของสเกลบาร์ที่ 100 พิกเซล
   final double _scaleBarWidthPixels = 100.0;
-  // เตรียม List สำหรับเก็บข้อมูลดาวเทียมจำลอง
-  final List<SatelliteData> _satellites = [];
+  // List สำหรับเก็บข้อมูลดาวเทียมทั้งหมดจาก JSON
+  final List<SatelliteData> _allSatellites = [];
+  List<DateTime> _uniqueTimes = [];
+  DateTime _minTime = DateTime(2026); // Placeholder, will be set from data
 
   //กำหนดตัวแปรเก็บค่าระดับซูมปัจจุบัน
   double _currentZoom = 4.91; // ค่าเริ่มต้นที่คำนวณมาให้สำหรับ 500 km
   double _currentLat = 13.8600; // ตัวแปรเก็บละติจูดใช้คำนวณสเกล
 
   // ตัวแปรสำหรับแถบเวลา
-  DateTime _currentTime = DateTime.now(); // เวลาเริ่มต้น
-  double _timeSliderValue = 0.0; // ค่าของ Slider (0.0 ถึง 100.0)
+  DateTime _currentTime = DateTime(2026); // Placeholder, will be set from data
+  double _timeSliderValue = 0.0; // ค่าของ Slider (0.0 ถึง 80.0)
   bool _isPlaying = false; // สถานะการเล่น Animation เวลา
+  Timer? _timer; // Timer สำหรับเล่นอัตโนมัติ
 
   @override
   void initState() {
     super.initState();
+    // ตั้งค่าเริ่มต้นสำหรับ Web: ให้เล่น Animation อัตโนมัติ
+    if (kIsWeb) {
+      _isPlaying = true;
+    }
     // คำนวณระดับซูมเริ่มต้นสำหรับ 500 km
-    _currentZoom = _calculateZoomForScale(500, _currentLat);
-    _generateMockSatellites();
+    _currentZoom = _calculateZoomForScale(350, _currentLat);
+    _loadData().then((_) {
+      // หลังจากโหลดข้อมูลเสร็จแล้ว ถ้า _isPlaying เป็น true (เช่นบน Web) ให้เริ่มเล่นอัตโนมัติ
+      if (_isPlaying && _uniqueTimes.isNotEmpty) {
+        _startTimer();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _startTimer() {
+    _timer = Timer.periodic(const Duration(milliseconds: 200), (timer) {
+      setState(() {
+        if (_uniqueTimes.isEmpty) {
+          _isPlaying = false;
+          _timer?.cancel();
+          _timer = null;
+          return;
+        }
+
+        _timeSliderValue += 1.0; // เพิ่ม 1 ต่อช่วงเวลา
+        if (_timeSliderValue > (_uniqueTimes.length - 1)) {
+          _timeSliderValue = 0.0; // รีเซ็ตเมื่อถึง max
+        }
+        // อัปเดตเวลา
+        _currentTime = _uniqueTimes[_timeSliderValue.toInt()];
+      });
+    });
+  }
+
+  Future<void> _loadData() async {
+    // โหลดข้อมูลจากหลาย station file โดยให้ TP00 เป็นแหล่งเวลาหลัก (mapping)
+    final List<String> assetFiles = [
+      'assets/TP00_S4C_last15min.json',
+      'assets/CHAN_S4C_last15min.json',
+      'assets/CHMA_S4C_last15min.json',
+      'assets/DPT9_S4C_last15min.json',
+      'assets/NKSW_S4C_last15min.json',
+      'assets/PJRK_S4C_last15min.json',
+      'assets/SISK_S4C_last15min.json',
+      'assets/SOKA_S4C_last15min.json',
+      'assets/SRTN_S4C_last15min.json',
+      'assets/UDON_S4C_last15min.json',
+      'assets/UTTD_S4C_last15min.json',
+    ];
+
+    _allSatellites.clear();
+    final List<SatelliteData> tp00Satellites = [];
+
+    for (final asset in assetFiles) {
+      try {
+        final jsonString = await rootBundle.loadString(asset);
+        final List<dynamic> jsonData = json.decode(jsonString);
+        final List<SatelliteData> loaded = jsonData.map((item) {
+          return SatelliteData(
+            sv: item['sv'],
+            position: LatLng(item['lat'], item['lon']),
+            status: item['status'].toInt(),
+            datetime: _parseUtcToBangkok(item['utc'] as String),
+            station: item['station'] as String,
+          );
+        }).toList();
+
+        _allSatellites.addAll(loaded);
+        if (asset.contains('TP00_S4C_last15min.json')) {
+          tp00Satellites.addAll(loaded);
+        }
+      } catch (e) {
+        // Ignore missing/invalid asset but log for development
+        debugPrint('Failed to load asset $asset: $e');
+      }
+    }
+
+    if (tp00Satellites.isNotEmpty) {
+      _uniqueTimes = tp00Satellites.map((s) => s.datetime).toSet().toList()
+        ..sort();
+      _minTime = _uniqueTimes.first;
+      _currentTime = _minTime;
+      _timeSliderValue = 0.0;
+    } else {
+      _uniqueTimes = [];
+    }
+
+    setState(() {});
+  }
+
+  // แปลงเวลา UTC (จาก JSON) ไปเป็นเวลาในโซน Asia/Bangkok (UTC+7)
+  DateTime _parseUtcToBangkok(String utcString) {
+    // JSON ป้อนเวลาในรูปแบบ UTC (ไม่มี offset) เช่น "2026-03-16T07:32:00".
+    // หากเจอ offset หรือ Z อยู่แล้ว ก็ใช้ตรง ๆ; มิฉะนั้น ให้เติม Z เพื่อบังคับให้เป็น UTC.
+    final normalized = RegExp(r'(Z|[+-]\d{2}:?\d{2})$').hasMatch(utcString)
+        ? utcString
+        : '${utcString}Z';
+    final utcTime = DateTime.parse(normalized).toUtc();
+    return utcTime.add(const Duration(hours: 7));
   }
 
   // ฟังก์ชันคำนวณหาระดับ Zoom จากระยะทางกิโลเมตรที่ต้องการ
@@ -160,18 +273,6 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
     return '${distanceKm.toStringAsFixed(1)} km';
   }
 
-  // ฟังก์ชันสร้างข้อมูลดาวเทียมจำลองรอบๆ ประเทศไทย
-  void _generateMockSatellites() {
-    _satellites.addAll([
-      SatelliteData(prn: 'G01', position: const LatLng(16.5, 100.0), status: 1),
-      SatelliteData(prn: 'G08', position: const LatLng(18.8, 99.0), status: 2),
-      SatelliteData(prn: 'R05', position: const LatLng(14.0, 102.5), status: 1),
-      SatelliteData(prn: 'E12', position: const LatLng(8.5, 99.5), status: 3),
-      SatelliteData(prn: 'G23', position: const LatLng(15.0, 105.0), status: 1),
-      SatelliteData(prn: 'C03', position: const LatLng(12.0, 97.0), status: 2),
-    ]);
-  }
-
   // ฟังก์ชันช่วยเลือกสีจากค่า status
   Color _getStatusColor(int status) {
     switch (status) {
@@ -214,7 +315,7 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
             tooltip: 'Information',
             onPressed: () {
               // เปิดลิงก์ไปยังหน้าเว็บที่มีข้อมูลเพิ่มเติมเกี่ยวกับสถานะดาวเทียม
-              const url = 'https://www.gnss.com/gnss-satellite-status/';
+              const url = 'https://www.google.com/';
               launchUrl(Uri.parse(url));
             },
           ),
@@ -279,27 +380,43 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
             onPressed: () {
               setState(() {
                 _isPlaying = !_isPlaying;
-                // (ในอนาคตเราจะใส่ Timer สำหรับให้เวลาเดินอัตโนมัติที่นี่)
+                if (_isPlaying) {
+                  _startTimer();
+                } else {
+                  // หยุดเล่น: ยกเลิก Timer
+                  _timer?.cancel();
+                  _timer = null;
+                }
               });
             },
           ),
           // แถบเลื่อน (Slider)
           Expanded(
             child: Slider(
-              value: _timeSliderValue,
+              value: _uniqueTimes.isEmpty
+                  ? 0.0
+                  : _timeSliderValue.clamp(
+                      0.0,
+                      (_uniqueTimes.length - 1).toDouble(),
+                    ),
               min: 0.0,
-              max: 100.0,
+              max: (_uniqueTimes.isNotEmpty
+                  ? (_uniqueTimes.length - 1).toDouble()
+                  : 0.0),
+              divisions: (_uniqueTimes.length > 1
+                  ? _uniqueTimes.length - 1
+                  : 1),
               activeColor: Colors.blue[900],
               inactiveColor: Colors.blue[200],
-              onChanged: (value) {
-                setState(() {
-                  _timeSliderValue = value;
-                  // จำลองการเปลี่ยนเวลาเมื่อเลื่อน Slider (เช่น เลื่อน 1% = เปลี่ยน 10 นาที)
-                  _currentTime = DateTime.now().add(
-                    Duration(minutes: (value * 10).toInt()),
-                  );
-                });
-              },
+              onChanged: _uniqueTimes.isEmpty
+                  ? null
+                  : (value) {
+                      setState(() {
+                        _timeSliderValue = value;
+                        // เปลี่ยนเวลาเมื่อเลื่อน Slider ตามข้อมูลใน JSON
+                        _currentTime = _uniqueTimes[value.toInt()];
+                      });
+                    },
             ),
           ),
           // ข้อความแสดงเวลา
@@ -365,42 +482,49 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
               ),
               // วาดจุดดาวเทียม (MarkerLayer) ซ้อนบนแผนที่
               MarkerLayer(
-                markers: _satellites.map((sat) {
-                  return Marker(
-                    point: sat.position,
-                    width: 30, // ความกว้างของจุด
-                    height: 30, // ความสูงของจุด
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: _getStatusColor(
-                          sat.status,
-                        ).withValues(alpha: 0.8), // สีพื้นหลังโปร่งแสงนิดๆ
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white, // ขอบสีขาวให้จุดดูโดดเด่น
-                          width: 1,
-                        ),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Colors.black26,
-                            blurRadius: 4,
-                            offset: Offset(0, 2),
+                markers: _allSatellites
+                    .where((sat) => sat.datetime == _currentTime)
+                    .map((sat) {
+                      return Marker(
+                        point: sat.position,
+                        width: 30, // ความกว้างของจุด
+                        height: 30, // ความสูงของจุด
+                        child: Tooltip(
+                          message:
+                              sat.station, // แสดงชื่อสถานีเมื่อเอาเมาส์วางบนจุด
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: _getStatusColor(sat.status).withValues(
+                                alpha: 0.8,
+                              ), // สีพื้นหลังโปร่งแสงนิดๆ
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: Colors.white, // ขอบสีขาวให้จุดดูโดดเด่น
+                                width: 1,
+                              ),
+                              boxShadow: const [
+                                BoxShadow(
+                                  color: Colors.black26,
+                                  blurRadius: 4,
+                                  offset: Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: Center(
+                              child: Text(
+                                sat.sv, // แสดงรหัส SV
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ),
                           ),
-                        ],
-                      ),
-                      child: Center(
-                        child: Text(
-                          sat.prn, // แสดงรหัส PRN
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 10,
-                          ),
                         ),
-                      ),
-                    ),
-                  );
-                }).toList(),
+                      );
+                    })
+                    .toList(),
               ),
             ],
           ),
