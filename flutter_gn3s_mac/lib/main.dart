@@ -18,7 +18,7 @@ class MainApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'S\u{2084} Computed Map',
+      title: 'S\u{2084} Computed Maps',
       debugShowCheckedModeBanner: false, // ปิดป้าย debug มุมขวาบน
       theme: ThemeData(primaryColor: Colors.blue[900]),
       home: SatelliteMapPage(),
@@ -287,7 +287,7 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
     }
   }
 
-  // ฟังก์ชันสร้าง Legend อธิบายสัญลักษณ์สี
+  // ฟังก์ชันสร้าง Legend และอธิบายสัญลักษณ์สี
   Widget _buildLegend() {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -303,20 +303,32 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
         mainAxisSize: MainAxisSize.min,
         children: [
           const SizedBox(width: 0),
-          _buildLegendItem(Color.fromARGB(255, 59, 130, 246), 'Low'),
+          _buildLegendItem(
+            Color.fromARGB(255, 59, 130, 246),
+            'Low',
+            'S\u{2084} computed values lower than or equal to 0.2',
+          ),
           const SizedBox(width: 8),
-          _buildLegendItem(Color.fromARGB(255, 251, 191, 36), 'Medium'),
+          _buildLegendItem(
+            Color.fromARGB(255, 251, 191, 36),
+            'Medium',
+            'S\u{2084} computed values between 0.2 and 0.4',
+          ),
           const SizedBox(width: 8),
-          _buildLegendItem(Color.fromARGB(255, 239, 68, 68), 'High'),
+          _buildLegendItem(
+            Color.fromARGB(255, 239, 68, 68),
+            'High',
+            'S\u{2084} computed values greater than or equal to 0.4',
+          ),
           const SizedBox(width: 8),
           IconButton(
             icon: const Icon(Icons.info_outline),
             color: Colors.black87,
-            tooltip: 'Information',
+            tooltip: 'Feature Information',
             onPressed: () {
               // เปิดลิงก์ไปยังหน้าเว็บที่มีข้อมูลเพิ่มเติมเกี่ยวกับสถานะดาวเทียม
-              const url = 'https://www.google.com/';
-              launchUrl(Uri.parse(url));
+              // const url = ''; // ใส่ URL ที่ต้องการให้เปิดเมื่อกดปุ่มนี้
+              // launchUrl(Uri.parse(url));
             },
           ),
         ],
@@ -324,17 +336,20 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
     );
   }
 
-  // ฟังก์ชันย่อยสำหรับสร้างบรรทัดใน Legend
-  Widget _buildLegendItem(Color color, String label) {
+  // ฟังก์ชันย่อยสำหรับสร้าง Legend
+  Widget _buildLegendItem(Color color, String label, String tooltip) {
     return Row(
       children: [
-        Container(
-          width: 20,
-          height: 20,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 1),
+        Tooltip(
+          message: tooltip,
+          child: Container(
+            width: 20,
+            height: 20,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 1),
+            ),
           ),
         ),
         const SizedBox(width: 2),
@@ -375,7 +390,7 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
             icon: Icon(
               _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill,
             ),
-            color: Colors.blue[900],
+            color: const Color(0xFF3D3D3D),
             iconSize: 36,
             onPressed: () {
               setState(() {
@@ -406,8 +421,8 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
               divisions: (_uniqueTimes.length > 1
                   ? _uniqueTimes.length - 1
                   : 1),
-              activeColor: Colors.blue[900],
-              inactiveColor: Colors.blue[200],
+              activeColor: Color(0xFF3D3D3D),
+              inactiveColor: Color(0xFFBABABA),
               onChanged: _uniqueTimes.isEmpty
                   ? null
                   : (value) {
@@ -423,15 +438,15 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: Colors.blue[50],
+              color: Color(0xFF3D3D3D),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.blue[200]!),
+              // border: Border.all(color: const Color(0xFF3D3D3D)),
             ),
             child: Text(
               formattedDate,
               style: TextStyle(
                 fontWeight: FontWeight.bold,
-                color: Colors.blue[900],
+                color: const Color(0xFFFFFFFF),
               ),
             ),
           ),
