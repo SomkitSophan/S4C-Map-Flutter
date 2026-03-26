@@ -91,6 +91,13 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
   bool _isPlaying = false; // สถานะการเล่น Animation เวลา
   Timer? _timer; // Timer สำหรับเล่นอัตโนมัติ
 
+  // --- เพิ่มตัวแปรใหม่สำหรับฟีเจอร์ Auto-reload และ Station Filter ---
+  Timer? _reloadTimer; // Timer สำหรับรีโหลดข้อมูลทุก 15 นาที
+  String _selectedStation = 'All'; // ตัวแปรเก็บสถานีที่เลือก
+  List<String> _availableStations = [
+    'All',
+  ]; // รายชื่อสถานีทั้งหมด (ดึงอัตโนมัติ)
+
   @override
   void initState() {
     super.initState();
@@ -106,11 +113,18 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
         _startTimer();
       }
     });
+
+    // --- เริ่ม Timer สำหรับรีโหลดข้อมูลอัตโนมัติทุกๆ 15 นาที ---
+    _reloadTimer = Timer.periodic(const Duration(minutes: 15), (timer) {
+      debugPrint('Auto-reloading data every 15 minutes...');
+      _loadData(); // เรียกใช้งานฟังก์ชันโหลดข้อมูลใหม่
+    });
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _reloadTimer?.cancel(); // ยกเลิก Timer รีโหลดข้อมูลเมื่อปิดหน้าจอ
     super.dispose();
   }
 
@@ -181,10 +195,26 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
       _uniqueTimes = tp00Satellites.map((s) => s.datetime).toSet().toList()
         ..sort();
       _minTime = _uniqueTimes.first;
-      _currentTime = _minTime;
-      _timeSliderValue = 0.0;
+
+      // อัปเดตเวลาปัจจุบันเฉพาะกรณีที่เพิ่งโหลดครั้งแรก (เพื่อไม่ให้กระตุกกลับไปเริ่มใหม่เวลารีโหลดทุก 15 นาที)
+      if (_currentTime.year == 2026 && _uniqueTimes.isNotEmpty) {
+        _currentTime = _minTime;
+        _timeSliderValue = 0.0;
+      }
     } else {
       _uniqueTimes = [];
+    }
+
+    // --- อัปเดตรายชื่อสถานีสำหรับ Dropdown Filter (ดึงข้อมูลสถานีที่ไม่ซ้ำกัน) ---
+    if (_allSatellites.isNotEmpty) {
+      final stations = _allSatellites.map((s) => s.station).toSet().toList()
+        ..sort();
+      _availableStations = ['All', ...stations];
+
+      // ตรวจสอบว่าสถานีที่เลือกก่อนหน้านี้ยังมีอยู่ในชุดข้อมูลใหม่หรือไม่ ถ้าไม่มีให้รีเซ็ตเป็น 'All'
+      if (!_availableStations.contains(_selectedStation)) {
+        _selectedStation = 'All';
+      }
     }
 
     setState(() {});
@@ -285,6 +315,51 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
       default:
         return const Color.fromARGB(255, 128, 128, 128);
     }
+  }
+
+  // --- ฟังก์ชันสร้าง Dropdown สำหรับกรองสถานี ---
+  Widget _buildStationFilter() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.95),
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: const [
+          BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2)),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.location_on, color: Colors.blueGrey, size: 20),
+          const SizedBox(width: 8),
+          DropdownButton<String>(
+            value: _selectedStation,
+            underline: const SizedBox(), // ซ่อนเส้นใต้ของ Dropdown
+            icon: const Icon(Icons.arrow_drop_down, color: Colors.blueGrey),
+            items: _availableStations.map((String station) {
+              return DropdownMenuItem<String>(
+                value: station,
+                child: Text(
+                  station == 'All' ? 'All Stations' : station,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+              );
+            }).toList(),
+            onChanged: (String? newValue) {
+              if (newValue != null) {
+                setState(() {
+                  _selectedStation = newValue;
+                });
+              }
+            },
+          ),
+        ],
+      ),
+    );
   }
 
   // ฟังก์ชันสร้าง Legend และอธิบายสัญลักษณ์สี
@@ -498,7 +573,12 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
               // วาดจุดดาวเทียม (MarkerLayer) ซ้อนบนแผนที่
               MarkerLayer(
                 markers: _allSatellites
-                    .where((sat) => sat.datetime == _currentTime)
+                    .where((sat) => sat.datetime == _currentTime) // กรองตามเวลา
+                    .where(
+                      (sat) =>
+                          _selectedStation == 'All' ||
+                          sat.station == _selectedStation,
+                    ) // --- กรองตามสถานี (Station Filter) ---
                     .map((sat) {
                       return Marker(
                         point: sat.position,
@@ -543,6 +623,14 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
               ),
             ],
           ),
+
+          // --- เพิ่มเมนู Dropdown เลือกสถานีที่มุมขวาบน ---
+          Positioned(
+            top: 40,
+            right: 20,
+            child: SafeArea(child: _buildStationFilter()),
+          ),
+
           // 2. Legend (อยู่มุมซ้ายล่าง ลอยขึ้นมาเหนือ Time Bar)
           Positioned(
             left: 20,
