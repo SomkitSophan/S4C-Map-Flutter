@@ -22,7 +22,6 @@ class MainApp extends StatelessWidget {
       debugShowCheckedModeBanner: false, // ปิดป้าย debug มุมขวาบน
       theme: ThemeData(primaryColor: Colors.blue[900]),
       home: SatelliteMapPage(),
-      // Scaffold(body: Center(child: Text('ดร.สมกิจ โสพันธ์'))),
     );
   }
 }
@@ -39,14 +38,14 @@ class SatelliteMapPage extends StatefulWidget {
 class SatelliteData {
   final String sv; // รหัสดาวเทียม เช่น G01, R05
   LatLng position; // พิกัดปัจจุบัน
-  int status; // สถานะ:1=Low,2=Medium,3=High (ใช้สำหรับกำหนดสี)
+  double s4c; // สถานะ:1=Low,2=Medium,3=High (ใช้สำหรับกำหนดสี)
   DateTime datetime; // เวลาที่บันทึกข้อมูล
   final String station; // สถานีที่บันทึกข้อมูล
 
   SatelliteData({
     required this.sv,
     required this.position,
-    required this.status,
+    required this.s4c,
     required this.datetime,
     required this.station,
   });
@@ -85,15 +84,21 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
   double _currentZoom = 4.91; // ค่าเริ่มต้นที่คำนวณมาให้สำหรับ 500 km
   double _currentLat = 13.8600; // ตัวแปรเก็บละติจูดใช้คำนวณสเกล
 
+  //ค่า Threshold สำหรับกำหนดสีของสถานะ (สามารถปรับได้ตามต้องการ)
+  double _lowThreshold = 0.2;
+  double _highThreshold = 0.4;
+
   // ตัวแปรสำหรับแถบเวลา
   DateTime _currentTime = DateTime(2026); // Placeholder, will be set from data
   double _timeSliderValue = 0.0; // ค่าของ Slider (0.0 ถึง 80.0)
   bool _isPlaying = false; // สถานะการเล่น Animation เวลา
   Timer? _timer; // Timer สำหรับเล่นอัตโนมัติ
 
-  // --- เพิ่มตัวแปรใหม่สำหรับฟีเจอร์ Auto-reload และ Station Filter ---
-  Timer? _reloadTimer; // Timer สำหรับรีโหลดข้อมูลทุก 15 นาที
-  String _selectedStation = 'All'; // ตัวแปรเก็บสถานีที่เลือก
+  // --- เปลี่ยนตัวแปรให้รองรับ Multi-select ---
+  Timer? _reloadTimer;
+  List<String> _selectedStations = [
+    'All',
+  ]; // ตัวแปรเก็บสถานีที่เลือก (หลายรายการ)
   List<String> _availableStations = [
     'All',
   ]; // รายชื่อสถานีทั้งหมด (ดึงอัตโนมัติ)
@@ -114,17 +119,17 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
       }
     });
 
-    // --- เริ่ม Timer สำหรับรีโหลดข้อมูลอัตโนมัติทุกๆ 15 นาที ---
-    _reloadTimer = Timer.periodic(const Duration(minutes: 15), (timer) {
-      debugPrint('Auto-reloading data every 15 minutes...');
-      _loadData(); // เรียกใช้งานฟังก์ชันโหลดข้อมูลใหม่
+    // เริ่ม Timer สำหรับรีโหลดข้อมูลอัตโนมัติทุกๆ 1 นาที (ตามคอมเมนต์ในโค้ดเดิม)
+    _reloadTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
+      debugPrint('Auto-reloading data every 1 minute...');
+      _loadData();
     });
   }
 
   @override
   void dispose() {
     _timer?.cancel();
-    _reloadTimer?.cancel(); // ยกเลิก Timer รีโหลดข้อมูลเมื่อปิดหน้าจอ
+    _reloadTimer?.cancel();
     super.dispose();
   }
 
@@ -138,18 +143,16 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
           return;
         }
 
-        _timeSliderValue += 1.0; // เพิ่ม 1 ต่อช่วงเวลา
+        _timeSliderValue += 1.0;
         if (_timeSliderValue > (_uniqueTimes.length - 1)) {
-          _timeSliderValue = 0.0; // รีเซ็ตเมื่อถึง max
+          _timeSliderValue = 0.0;
         }
-        // อัปเดตเวลา
         _currentTime = _uniqueTimes[_timeSliderValue.toInt()];
       });
     });
   }
 
   Future<void> _loadData() async {
-    // โหลดข้อมูลจากหลาย station file โดยให้ TP00 เป็นแหล่งเวลาหลัก (mapping)
     final List<String> assetFiles = [
       'assets/TP00_S4C_last15min.json',
       'assets/CHAN_S4C_last15min.json',
@@ -175,7 +178,7 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
           return SatelliteData(
             sv: item['sv'],
             position: LatLng(item['lat'], item['lon']),
-            status: item['status'].toInt(),
+            s4c: item['s4c'].toDouble(),
             datetime: _parseUtcToBangkok(item['utc'] as String),
             station: item['station'] as String,
           );
@@ -186,7 +189,6 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
           tp00Satellites.addAll(loaded);
         }
       } catch (e) {
-        // Ignore missing/invalid asset but log for development
         debugPrint('Failed to load asset $asset: $e');
       }
     }
@@ -196,7 +198,6 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
         ..sort();
       _minTime = _uniqueTimes.first;
 
-      // อัปเดตเวลาปัจจุบันเฉพาะกรณีที่เพิ่งโหลดครั้งแรก (เพื่อไม่ให้กระตุกกลับไปเริ่มใหม่เวลารีโหลดทุก 15 นาที)
       if (_currentTime.year == 2026 && _uniqueTimes.isNotEmpty) {
         _currentTime = _minTime;
         _timeSliderValue = 0.0;
@@ -205,25 +206,25 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
       _uniqueTimes = [];
     }
 
-    // --- อัปเดตรายชื่อสถานีสำหรับ Dropdown Filter (ดึงข้อมูลสถานีที่ไม่ซ้ำกัน) ---
+    // อัปเดตรายชื่อสถานีสำหรับ Filter
     if (_allSatellites.isNotEmpty) {
       final stations = _allSatellites.map((s) => s.station).toSet().toList()
         ..sort();
       _availableStations = ['All', ...stations];
 
-      // ตรวจสอบว่าสถานีที่เลือกก่อนหน้านี้ยังมีอยู่ในชุดข้อมูลใหม่หรือไม่ ถ้าไม่มีให้รีเซ็ตเป็น 'All'
-      if (!_availableStations.contains(_selectedStation)) {
-        _selectedStation = 'All';
+      // ล้างค่าสถานีที่เลือกไว้แต่ไม่มีในข้อมูลใหม่ (ยกเว้น 'All')
+      _selectedStations.removeWhere(
+        (s) => !_availableStations.contains(s) && s != 'All',
+      );
+      if (_selectedStations.isEmpty) {
+        _selectedStations = ['All'];
       }
     }
 
     setState(() {});
   }
 
-  // แปลงเวลา UTC (จาก JSON) ไปเป็นเวลาในโซน Asia/Bangkok (UTC+7)
   DateTime _parseUtcToBangkok(String utcString) {
-    // JSON ป้อนเวลาในรูปแบบ UTC (ไม่มี offset) เช่น "2026-03-16T07:32:00".
-    // หากเจอ offset หรือ Z อยู่แล้ว ก็ใช้ตรง ๆ; มิฉะนั้น ให้เติม Z เพื่อบังคับให้เป็น UTC.
     final normalized = RegExp(r'(Z|[+-]\d{2}:?\d{2})$').hasMatch(utcString)
         ? utcString
         : '${utcString}Z';
@@ -231,26 +232,20 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
     return utcTime.add(const Duration(hours: 7));
   }
 
-  // ฟังก์ชันคำนวณหาระดับ Zoom จากระยะทางกิโลเมตรที่ต้องการ
   double _calculateZoomForScale(int targetScaleKm, double latitude) {
     double distanceMeters = targetScaleKm * 1000.0;
     double resolution = distanceMeters / _scaleBarWidthPixels;
-    // ใช้สูตร Log2 คำนวณย้อนกลับหาค่า Zoom
     double zoom =
         math.log(156543.03 * math.cos(latitude * math.pi / 180) / resolution) /
         math.ln2;
     return zoom;
   }
 
-  // ฟังก์ชันซูมเข้า
   void _zoomIn() {
     double currentDistanceKm = _getCurrentDistanceKm();
     int targetScale = _scaleLevelsKm.first;
-
-    // หาค่าสเกลที่เล็กกว่าค่าปัจจุบัน
     for (int i = _scaleLevelsKm.length - 1; i >= 0; i--) {
       if (_scaleLevelsKm[i] < currentDistanceKm - 1) {
-        // -1 เผื่อทศนิยมคลาดเคลื่อน
         targetScale = _scaleLevelsKm[i];
         break;
       }
@@ -258,15 +253,11 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
     _applyScale(targetScale);
   }
 
-  // ฟังก์ชันซูมออก
   void _zoomOut() {
     double currentDistanceKm = _getCurrentDistanceKm();
     int targetScale = _scaleLevelsKm.last;
-
-    // หาค่าสเกลที่ใหญ่กว่าค่าปัจจุบัน
     for (int i = 0; i < _scaleLevelsKm.length; i++) {
       if (_scaleLevelsKm[i] > currentDistanceKm + 1) {
-        // +1 เผื่อทศนิยมคลาดเคลื่อน
         targetScale = _scaleLevelsKm[i];
         break;
       }
@@ -274,13 +265,11 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
     _applyScale(targetScale);
   }
 
-  // สั่งให้แผนที่ซูมไปยังสเกลที่คำนวณได้
   void _applyScale(int scaleKm) {
     double newZoom = _calculateZoomForScale(scaleKm, _currentLat);
     _mapController.move(_mapController.camera.center, newZoom);
   }
 
-  // คำนวณระยะทางปัจจุบัน (เพื่อแสดงบนสเกลบาร์และใช้เปรียบเทียบ)
   double _getCurrentDistanceKm() {
     double resolution =
         156543.03 *
@@ -290,79 +279,220 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
     return distanceMeters / 1000.0;
   }
 
-  // 2. ฟังก์ชันคำนวณระยะทางสำหรับสเกลบาร์
   String _getScaleText() {
     double distanceKm = _getCurrentDistanceKm();
-    // ถ้าตัวเลขใกล้เคียงสเกลที่ตั้งไว้มากๆ ให้ปัดเศษให้สวยงาม (เช่น 499.8 -> 500)
     for (int scale in _scaleLevelsKm) {
       if ((distanceKm - scale).abs() < 5) {
         return '$scale km';
       }
     }
-    // ถ้าผู้ใช้ใช้นิ้วซูมเองจนได้สเกลแปลกๆ ให้แสดงตามจริง
     return '${distanceKm.toStringAsFixed(1)} km';
   }
 
-  // ฟังก์ชันช่วยเลือกสีจากค่า status
-  Color _getStatusColor(int status) {
-    switch (status) {
-      case 1:
-        return const Color.fromARGB(255, 59, 130, 246);
-      case 2:
-        return const Color.fromARGB(255, 251, 191, 36);
-      case 3:
-        return const Color.fromARGB(255, 239, 68, 68);
-      default:
-        return const Color.fromARGB(255, 128, 128, 128);
+  Color _getStatusColor(double s4c) {
+    // 1. เงื่อนไข Low: ค่า S4 น้อยกว่าหรือเท่ากับ 0.2
+    if (s4c <= _lowThreshold) {
+      return const Color.fromARGB(255, 59, 130, 246); // สีน้ำเงิน
+    }
+    // 2. เงื่อนไข Medium: ค่า S4 อยู่ระหว่าง 0.2 ถึง 0.4
+    else if (s4c > _lowThreshold && s4c < _highThreshold) {
+      return const Color.fromARGB(255, 251, 191, 36); // สีเหลือง
+    }
+    // 3. เงื่อนไข High: ค่า S4 มากกว่าหรือเท่ากับ 0.4
+    else if (s4c >= _highThreshold) {
+      return const Color.fromARGB(255, 239, 68, 68); // สีแดง
+    }
+    // 4. เงื่อนไขเริ่มต้น/กำหนดเอง (Default) สำหรับกรณีค่าผิดปกติ หรือค่า Null (ถ้ามี)
+    else {
+      return const Color.fromARGB(255, 128, 128, 128); // สีเทา
     }
   }
 
-  // --- ฟังก์ชันสร้าง Dropdown สำหรับกรองสถานี ---
-  Widget _buildStationFilter() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.95),
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: const [
-          BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2)),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.location_on, color: Colors.blueGrey, size: 20),
-          const SizedBox(width: 8),
-          DropdownButton<String>(
-            value: _selectedStation,
-            underline: const SizedBox(), // ซ่อนเส้นใต้ของ Dropdown
-            icon: const Icon(Icons.arrow_drop_down, color: Colors.blueGrey),
-            items: _availableStations.map((String station) {
-              return DropdownMenuItem<String>(
-                value: station,
-                child: Text(
-                  station == 'All' ? 'All Stations' : station,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-              );
-            }).toList(),
-            onChanged: (String? newValue) {
-              if (newValue != null) {
-                setState(() {
-                  _selectedStation = newValue;
-                });
-              }
+  // ฟังก์ชันสำหรับแสดง Dialog ตั้งค่า Thresholds
+  void _showThresholdSettingsDialog() {
+    final lowController = TextEditingController(text: _lowThreshold.toString());
+    final highController = TextEditingController(
+      text: _highThreshold.toString(),
+    );
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Threshold setup:'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: lowController,
+              keyboardType: TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Threshold between Low and Medium',
+              ),
+            ),
+            TextField(
+              controller: highController,
+              keyboardType: TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Threshold between Medium and High',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                _lowThreshold =
+                    double.tryParse(lowController.text) ?? _lowThreshold;
+                _highThreshold =
+                    double.tryParse(highController.text) ?? _highThreshold;
+              });
+              Navigator.pop(context);
             },
+            child: const Text('Save'),
           ),
         ],
       ),
     );
   }
 
-  // ฟังก์ชันสร้าง Legend และอธิบายสัญลักษณ์สี
+  // --- ฟังก์ชันสำหรับเปิด Dialog เลือกหลายสถานี ---
+  void _showMultiSelectDialog() {
+    // สร้าง List ชั่วคราวสำหรับเก็บค่าระหว่างที่ยังไม่ได้กด Apply
+    List<String> tempSelected = List.from(_selectedStations);
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        // ใช้ StatefulBuilder เพื่อให้ Checkbox อัปเดตสถานะใน Dialog ได้ทันที
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            return AlertDialog(
+              title: const Text('Data selection:'),
+              backgroundColor: Colors.white.withValues(alpha: 0.8),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: _availableStations.length,
+                  itemBuilder: (context, index) {
+                    final station = _availableStations[index];
+                    return CheckboxListTile(
+                      title: Text(station == 'All' ? 'All Stations' : station),
+                      value: tempSelected.contains(station),
+                      activeColor: const Color(0xFF000000),
+                      onChanged: (bool? checked) {
+                        setStateDialog(() {
+                          if (checked == true) {
+                            if (station == 'All') {
+                              tempSelected = [
+                                'All',
+                              ]; // ถ้าเลือก All ให้ล้างค่าอื่นออก
+                            } else {
+                              tempSelected.remove(
+                                'All',
+                              ); // ถ้าเลือกสถานีอื่น ให้เอา All ออก
+                              tempSelected.add(station);
+                            }
+                          } else {
+                            tempSelected.remove(station);
+                            if (tempSelected.isEmpty) {
+                              tempSelected.add(
+                                'All',
+                              ); // ถ้าเอาออกหมด ให้กลับไปเป็น All
+                            }
+                          }
+                        });
+                      },
+                    );
+                  },
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(), // Cancel
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    // Apply: นำค่าชั่วคราวไปใส่ในตัวแปรหลักแล้วรีเฟรชหน้าจอหลัก
+                    setState(() {
+                      _selectedStations = tempSelected;
+                    });
+                    Navigator.of(context).pop();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF000000),
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Apply'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // --- อัปเดตปุ่ม Filter ให้กดแล้วเปิด Dialog ---
+  Widget _buildStationFilter() {
+    // กำหนดข้อความที่จะแสดงบนปุ่ม
+    String buttonText;
+    if (_selectedStations.contains('All')) {
+      buttonText = 'All Stations';
+    } else if (_selectedStations.length == 1) {
+      buttonText = _selectedStations.first;
+    } else {
+      buttonText = '${_selectedStations.length} Stations';
+    }
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _showMultiSelectDialog, // เรียก Dialog เมื่อกด
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.55),
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: const [
+              BoxShadow(
+                color: Colors.black26,
+                blurRadius: 4,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.location_on, color: Color(0xFF000000), size: 20),
+              const SizedBox(width: 8),
+              Text(
+                buttonText,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(width: 4),
+              const Icon(Icons.arrow_drop_down, color: Color(0xFF000000)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildLegend() {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -381,37 +511,38 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
           _buildLegendItem(
             Color.fromARGB(255, 59, 130, 246),
             'Low',
-            'S\u{2084} computed values lower than or equal to 0.2',
+            'S\u{2084} computed values lower than or equal to $_lowThreshold',
           ),
           const SizedBox(width: 8),
           _buildLegendItem(
             Color.fromARGB(255, 251, 191, 36),
             'Medium',
-            'S\u{2084} computed values between 0.2 and 0.4',
+            'S\u{2084} computed values between $_lowThreshold and $_highThreshold',
           ),
           const SizedBox(width: 8),
           _buildLegendItem(
             Color.fromARGB(255, 239, 68, 68),
             'High',
-            'S\u{2084} computed values greater than or equal to 0.4',
+            'S\u{2084} computed values greater than or equal to $_highThreshold',
           ),
           const SizedBox(width: 8),
           IconButton(
-            icon: const Icon(Icons.info_outline),
+            icon: const Icon(Icons.settings, size: 20),
             color: Colors.black87,
-            tooltip: 'Feature Information',
-            onPressed: () {
-              // เปิดลิงก์ไปยังหน้าเว็บที่มีข้อมูลเพิ่มเติมเกี่ยวกับสถานะดาวเทียม
-              // const url = ''; // ใส่ URL ที่ต้องการให้เปิดเมื่อกดปุ่มนี้
-              // launchUrl(Uri.parse(url));
-            },
+            tooltip: 'Threshold setup',
+            onPressed: _showThresholdSettingsDialog,
           ),
+          // IconButton(
+          //   icon: const Icon(Icons.info_outline),
+          //   color: Colors.black87,
+          //   tooltip: 'Feature Information',
+          //   onPressed: () {},
+          // ),
         ],
       ),
     );
   }
 
-  // ฟังก์ชันย่อยสำหรับสร้าง Legend
   Widget _buildLegendItem(Color color, String label, String tooltip) {
     return Row(
       children: [
@@ -440,9 +571,7 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
     );
   }
 
-  // ฟังก์ชันสร้างแถบเวลาด้านล่าง
   Widget _buildTimeBar() {
-    // จัดฟอร์แมตวันที่แบบง่ายๆ (DD/MM/YYYY HH:MM:SS)
     String formattedDate =
         '${_currentTime.day.toString().padLeft(2, '0')}/${_currentTime.month.toString().padLeft(2, '0')}/${_currentTime.year} '
         '${_currentTime.hour.toString().padLeft(2, '0')}:${_currentTime.minute.toString().padLeft(2, '0')}:${_currentTime.second.toString().padLeft(2, '0')}';
@@ -460,7 +589,6 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
       ),
       child: Row(
         children: [
-          // ปุ่ม Play/Pause
           IconButton(
             icon: Icon(
               _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill,
@@ -473,14 +601,12 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
                 if (_isPlaying) {
                   _startTimer();
                 } else {
-                  // หยุดเล่น: ยกเลิก Timer
                   _timer?.cancel();
                   _timer = null;
                 }
               });
             },
           ),
-          // แถบเลื่อน (Slider)
           Expanded(
             child: Slider(
               value: _uniqueTimes.isEmpty
@@ -503,19 +629,16 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
                   : (value) {
                       setState(() {
                         _timeSliderValue = value;
-                        // เปลี่ยนเวลาเมื่อเลื่อน Slider ตามข้อมูลใน JSON
                         _currentTime = _uniqueTimes[value.toInt()];
                       });
                     },
             ),
           ),
-          // ข้อความแสดงเวลา
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
               color: Color(0xFF3D3D3D),
               borderRadius: BorderRadius.circular(8),
-              // border: Border.all(color: const Color(0xFF3D3D3D)),
             ),
             child: Text(
               formattedDate,
@@ -535,68 +658,51 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
     return Scaffold(
       body: Stack(
         children: [
-          // ส่วนที่ 1: แผนที่
           FlutterMap(
-            mapController: _mapController, // ใส่ Controller ให้แผนที่
+            mapController: _mapController,
             options: MapOptions(
-              initialCenter: const LatLng(
-                13.4500,
-                100.5200,
-              ), // จุดศูนย์กลางของแผนที่ (ประเทศไทย)
+              initialCenter: const LatLng(13.4500, 100.5200),
               initialZoom: _currentZoom,
               interactionOptions: const InteractionOptions(
                 flags: InteractiveFlag.all,
               ),
-              // 3. ดักจับเหตุการณ์เมื่อแผนที่ถูกซูมหรือเลื่อนด้วยเมาส์/นิ้ว
               onPositionChanged: (camera, hasGesture) {
                 setState(() {
-                  _currentZoom = camera.zoom; // อัปเดตตัวเลขซูม
-                  _currentLat = camera
-                      .center
-                      .latitude; // อัปเดตละติจูดทุกครั้งที่ขยับแผนที่
+                  _currentZoom = camera.zoom;
+                  _currentLat = camera.center.latitude;
                 });
               },
             ),
             children: [
-              // เลเยอร์สำหรับแสดงภาพแผนที่จาก OpenStreetMap
               TileLayer(
                 urlTemplate:
                     'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-                subdomains: const [
-                  'a',
-                  'b',
-                  'c',
-                  'd',
-                ], // ตัวแปรสำหรับ {s} เพื่อโหลดภาพได้เร็วขึ้น
+                subdomains: const ['a', 'b', 'c', 'd'],
                 userAgentPackageName: 'com.example.gnss_monitor',
               ),
-              // วาดจุดดาวเทียม (MarkerLayer) ซ้อนบนแผนที่
               MarkerLayer(
                 markers: _allSatellites
-                    .where((sat) => sat.datetime == _currentTime) // กรองตามเวลา
+                    .where((sat) => sat.datetime == _currentTime)
+                    // --- อัปเดตเงื่อนไขให้กรองข้อมูลจาก List แบบ Multi-select ---
                     .where(
                       (sat) =>
-                          _selectedStation == 'All' ||
-                          sat.station == _selectedStation,
-                    ) // --- กรองตามสถานี (Station Filter) ---
+                          _selectedStations.contains('All') ||
+                          _selectedStations.contains(sat.station),
+                    )
                     .map((sat) {
                       return Marker(
                         point: sat.position,
-                        width: 30, // ความกว้างของจุด
-                        height: 30, // ความสูงของจุด
+                        width: 30,
+                        height: 30,
                         child: Tooltip(
-                          message:
-                              sat.station, // แสดงชื่อสถานีเมื่อเอาเมาส์วางบนจุด
+                          message: sat.station,
                           child: Container(
                             decoration: BoxDecoration(
-                              color: _getStatusColor(sat.status).withValues(
-                                alpha: 0.8,
-                              ), // สีพื้นหลังโปร่งแสงนิดๆ
+                              color: _getStatusColor(
+                                sat.s4c,
+                              ).withValues(alpha: 0.8),
                               shape: BoxShape.circle,
-                              border: Border.all(
-                                color: Colors.white, // ขอบสีขาวให้จุดดูโดดเด่น
-                                width: 1,
-                              ),
+                              border: Border.all(color: Colors.white, width: 1),
                               boxShadow: const [
                                 BoxShadow(
                                   color: Colors.black26,
@@ -607,7 +713,7 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
                             ),
                             child: Center(
                               child: Text(
-                                sat.sv, // แสดงรหัส SV
+                                sat.sv,
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.bold,
@@ -623,21 +729,12 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
               ),
             ],
           ),
-
-          // --- เพิ่มเมนู Dropdown เลือกสถานีที่มุมขวาบน ---
           Positioned(
             top: 40,
             right: 20,
             child: SafeArea(child: _buildStationFilter()),
           ),
-
-          // 2. Legend (อยู่มุมซ้ายล่าง ลอยขึ้นมาเหนือ Time Bar)
-          Positioned(
-            left: 20,
-            bottom: 90, // เว้นที่ให้ Time Bar
-            child: _buildLegend(),
-          ),
-          // ส่วนที่ 2: UI ควบคุมการซูม (วางทับบนแผนที่มุมขวาล่าง)
+          Positioned(left: 20, bottom: 90, child: _buildLegend()),
           Positioned(
             right: 20,
             bottom: 90,
@@ -645,7 +742,6 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                // กลุ่มปุ่มกด ซูมเข้า/ออก
                 Container(
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.55),
@@ -681,8 +777,7 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 8), // เว้นระยะห่างระหว่างปุ่มกับสเกลบาร์
-                // สเกลบาร์
+                const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.only(
                     left: 8,
@@ -730,7 +825,6 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
               ],
             ),
           ),
-          // 4. แถบควบคุมเวลา (Time Bar) ยึดติดขอบล่างสุด
           Positioned(left: 0, right: 0, bottom: 0, child: _buildTimeBar()),
         ],
       ),
