@@ -88,6 +88,9 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
   double _lowThreshold = 0.2;
   double _highThreshold = 0.4;
 
+  //ค่าเปอร์เซ็นต์การแจ้งเตือน (ค่าเริ่มต้น 75%)
+  double _alertPercentageThreshold = 75.0;
+
   // ตัวแปรสำหรับแถบเวลา
   DateTime _currentTime = DateTime(2026); // Placeholder, will be set from data
   double _timeSliderValue = 0.0; // ค่าของ Slider (0.0 ถึง 80.0)
@@ -314,6 +317,9 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
     final highController = TextEditingController(
       text: _highThreshold.toString(),
     );
+    final alertPercentController = TextEditingController(
+      text: _alertPercentageThreshold.toString(),
+    );
 
     showDialog(
       context: context,
@@ -336,6 +342,14 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
                 labelText: 'Threshold between Medium and High',
               ),
             ),
+            TextField(
+              controller: alertPercentController,
+              keyboardType: TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Threshold for Alert',
+                suffixText: '%',
+              ),
+            ),
           ],
         ),
         actions: [
@@ -350,6 +364,9 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
                     double.tryParse(lowController.text) ?? _lowThreshold;
                 _highThreshold =
                     double.tryParse(highController.text) ?? _highThreshold;
+                _alertPercentageThreshold =
+                    double.tryParse(alertPercentController.text) ??
+                    _alertPercentageThreshold;
               });
               Navigator.pop(context);
             },
@@ -653,8 +670,73 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
     );
   }
 
+  // ฟังก์ชันดึงข้อมูลดาวเทียมที่กำลังแสดงผลบนหน้าจอ ณ เวลานั้นๆ
+  List<SatelliteData> get _currentVisibleSatellites {
+    return _allSatellites
+        .where((sat) => sat.datetime == _currentTime)
+        .where(
+          (sat) =>
+              _selectedStations.contains('All') ||
+              _selectedStations.contains(sat.station),
+        )
+        .toList();
+  }
+
+  // Widget สำหรับแสดงการแจ้งเตือนเมื่อมีดาวเทียมที่มีสถานะ High เกินเปอร์เซ็นต์ที่กำหนด
+  Widget _buildHighScintillationAlert(List<SatelliteData> visibleSats) {
+    if (visibleSats.isEmpty) return const SizedBox.shrink();
+
+    // นับจำนวนดาวเทียมทั้งหมดที่แสดงผล
+    int totalCount = visibleSats.length;
+    // นับจำนวนดาวเทียมที่มีสถานะ High (S4C >= _highThreshold)
+    int highCount = visibleSats
+        .where((sat) => sat.s4c >= _highThreshold)
+        .length;
+
+    // คำนวณเปอร์เซ็นต์
+    double highPercentage = (highCount / totalCount) * 100;
+
+    // ถ้าเปอร์เซ็นต์มากกว่า _alertPercentageThreshold ให้แสดงแถบแจ้งเตือน
+    if (highPercentage > _alertPercentageThreshold) {
+      return Container(
+        margin: const EdgeInsets.only(top: 40), // ระยะห่างจากด้านบน
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: Color(0xFFEF4444).withValues(alpha: 0.8), // พื้นหลังสีแดง
+          borderRadius: BorderRadius.circular(30),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black26,
+              blurRadius: 6,
+              offset: Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.warning_rounded, color: Colors.white, size: 24),
+            const SizedBox(width: 8),
+            Text(
+              'Alert: High Status > ${_alertPercentageThreshold.toStringAsFixed(1)}% (${highPercentage.toStringAsFixed(1)}% | $highCount/$totalCount)',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
   @override
   Widget build(BuildContext context) {
+    // โหลดตัวแปรเก็บดาวเทียมรอบนี้ เพื่อส่งให้ Marker และ Alert คำนวณ
+    final currentVisibleSats = _currentVisibleSatellites;
+
     return Scaffold(
       body: Stack(
         children: [
@@ -681,53 +763,50 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
                 userAgentPackageName: 'com.example.gnss_monitor',
               ),
               MarkerLayer(
-                markers: _allSatellites
-                    .where((sat) => sat.datetime == _currentTime)
-                    // --- อัปเดตเงื่อนไขให้กรองข้อมูลจาก List แบบ Multi-select ---
-                    .where(
-                      (sat) =>
-                          _selectedStations.contains('All') ||
-                          _selectedStations.contains(sat.station),
-                    )
-                    .map((sat) {
-                      return Marker(
-                        point: sat.position,
-                        width: 30,
-                        height: 30,
-                        child: Tooltip(
-                          message: sat.station,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: _getStatusColor(
-                                sat.s4c,
-                              ).withValues(alpha: 0.8),
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 1),
-                              boxShadow: const [
-                                BoxShadow(
-                                  color: Colors.black26,
-                                  blurRadius: 4,
-                                  offset: Offset(0, 2),
-                                ),
-                              ],
+                markers: currentVisibleSats.map((sat) {
+                  return Marker(
+                    point: sat.position,
+                    width: 30,
+                    height: 30,
+                    child: Tooltip(
+                      message: sat.station,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: _getStatusColor(
+                            sat.s4c,
+                          ).withValues(alpha: 0.8),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 1),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Colors.black26,
+                              blurRadius: 4,
+                              offset: Offset(0, 2),
                             ),
-                            child: Center(
-                              child: Text(
-                                sat.sv,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 10,
-                                ),
-                              ),
+                          ],
+                        ),
+                        child: Center(
+                          child: Text(
+                            sat.sv,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 10,
                             ),
                           ),
                         ),
-                      );
-                    })
-                    .toList(),
+                      ),
+                    ),
+                  );
+                }).toList(),
               ),
             ],
+          ),
+          Align(
+            alignment: Alignment.topCenter,
+            child: SafeArea(
+              child: _buildHighScintillationAlert(currentVisibleSats),
+            ),
           ),
           Positioned(
             top: 40,
