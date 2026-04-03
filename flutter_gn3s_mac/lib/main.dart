@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:url_launcher/url_launcher.dart';
+//import 'package:url_launcher/url_launcher.dart';
 import 'dart:math' as math;
 import 'dart:async';
 import 'dart:convert';
@@ -34,7 +34,7 @@ class SatelliteMapPage extends StatefulWidget {
   State<SatelliteMapPage> createState() => _SatelliteMapPageState();
 }
 
-// 1. สร้าง Model สำหรับเก็บข้อมูลดาวเทียม
+// สร้าง Model สำหรับเก็บข้อมูลดาวเทียม
 class SatelliteData {
   final String sv; // รหัสดาวเทียม เช่น G01, R05
   LatLng position; // พิกัดปัจจุบัน
@@ -73,35 +73,36 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
     900,
     1000,
   ];
+
   // กำหนดความกว้างของสเกลบาร์ที่ 100 พิกเซล
   final double _scaleBarWidthPixels = 100.0;
-  // List สำหรับเก็บข้อมูลดาวเทียมทั้งหมดจาก JSON
+  // สร้าง List สำหรับเก็บข้อมูลดาวเทียมทั้งหมดจาก JSON
   final List<SatelliteData> _allSatellites = [];
   List<DateTime> _uniqueTimes = [];
   DateTime _minTime = DateTime(2026); // Placeholder, will be set from data
 
-  //กำหนดตัวแปรเก็บค่าระดับซูมปัจจุบัน
+  // กำหนดตัวแปรเก็บค่าระดับซูมปัจจุบัน
   double _currentZoom = 4.91; // ค่าเริ่มต้นที่คำนวณมาให้สำหรับ 500 km
   double _currentLat = 13.8600; // ตัวแปรเก็บละติจูดใช้คำนวณสเกล
 
-  //ค่า Threshold สำหรับกำหนดสีของสถานะ (สามารถปรับได้ตามต้องการ)
+  // กำหนดค่า Threshold สำหรับกำหนดสีของสถานะ (สามารถปรับได้ตามต้องการ)
   double _lowThreshold = 0.2;
   double _highThreshold = 0.4;
 
-  //ค่าเปอร์เซ็นต์การแจ้งเตือน (ค่าเริ่มต้น 75%)
+  // กำหนดค่าเปอร์เซ็นต์การแจ้งเตือน (ค่าเริ่มต้น 75%)
   double _alertPercentageThreshold = 75.0;
 
-  // ตัวแปรสำหรับแถบเวลา
+  // กำหนดตัวแปรสำหรับแถบเวลา
   DateTime _currentTime = DateTime(2026); // Placeholder, will be set from data
   double _timeSliderValue = 0.0; // ค่าของ Slider (0.0 ถึง 80.0)
   bool _isPlaying = false; // สถานะการเล่น Animation เวลา
   Timer? _timer; // Timer สำหรับเล่นอัตโนมัติ
 
-  // --- เปลี่ยนตัวแปรให้รองรับ Multi-select ---
+  // กำหนดตัวแปรรองรับ Multi-select
   Timer? _reloadTimer;
   List<String> _selectedStations = [
     'All',
-  ]; // ตัวแปรเก็บสถานีที่เลือก (หลายรายการ)
+  ]; // กำหนดตัวแปรเก็บสถานีที่เลือก (หลายรายการ)
   List<String> _availableStations = [
     'All',
   ]; // รายชื่อสถานีทั้งหมด (ดึงอัตโนมัติ)
@@ -122,9 +123,9 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
       }
     });
 
-    // เริ่ม Timer สำหรับรีโหลดข้อมูลอัตโนมัติทุกๆ 1 นาที (ตามคอมเมนต์ในโค้ดเดิม)
-    _reloadTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
-      debugPrint('Auto-reloading data every 1 minute...');
+    // เริ่ม Timer สำหรับรีโหลดข้อมูลอัตโนมัติทุกๆ 5 นาที
+    _reloadTimer = Timer.periodic(const Duration(minutes: 5), (timer) {
+      debugPrint('Auto-reloading data every 5 minutes...');
       _loadData();
     });
   }
@@ -293,15 +294,15 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
   }
 
   Color _getStatusColor(double s4c) {
-    // 1. เงื่อนไข Low: ค่า S4 น้อยกว่าหรือเท่ากับ 0.2
+    // 1. เงื่อนไข Low: ค่า S4 น้อยกว่าหรือเท่ากับ _lowThreshold
     if (s4c <= _lowThreshold) {
       return const Color.fromARGB(255, 59, 130, 246); // สีน้ำเงิน
     }
-    // 2. เงื่อนไข Medium: ค่า S4 อยู่ระหว่าง 0.2 ถึง 0.4
+    // 2. เงื่อนไข Medium: ค่า S4 อยู่ระหว่าง _lowThreshold ถึง _highThreshold
     else if (s4c > _lowThreshold && s4c < _highThreshold) {
       return const Color.fromARGB(255, 251, 191, 36); // สีเหลือง
     }
-    // 3. เงื่อนไข High: ค่า S4 มากกว่าหรือเท่ากับ 0.4
+    // 3. เงื่อนไข High: ค่า S4 มากกว่าหรือเท่ากับ _highThreshold
     else if (s4c >= _highThreshold) {
       return const Color.fromARGB(255, 239, 68, 68); // สีแดง
     }
@@ -520,31 +521,31 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
           BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2)),
         ],
       ),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const SizedBox(width: 0),
+          const SizedBox(height: 0),
           _buildLegendItem(
             Color.fromARGB(255, 59, 130, 246),
-            'Low',
+            'Low       ',
             'S\u{2084} computed values lower than or equal to $_lowThreshold',
           ),
-          const SizedBox(width: 8),
+          const SizedBox(height: 4),
           _buildLegendItem(
             Color.fromARGB(255, 251, 191, 36),
             'Medium',
             'S\u{2084} computed values between $_lowThreshold and $_highThreshold',
           ),
-          const SizedBox(width: 8),
+          const SizedBox(height: 4),
           _buildLegendItem(
             Color.fromARGB(255, 239, 68, 68),
-            'High',
+            'High      ',
             'S\u{2084} computed values greater than or equal to $_highThreshold',
           ),
-          const SizedBox(width: 8),
+          const SizedBox(height: 4),
           IconButton(
-            icon: const Icon(Icons.settings, size: 20),
+            icon: const Icon(Icons.settings, size: 25),
             color: Colors.black87,
             tooltip: 'Threshold setup',
             onPressed: _showThresholdSettingsDialog,
@@ -715,14 +716,14 @@ class _SatelliteMapPageState extends State<SatelliteMapPage> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.warning_rounded, color: Colors.white, size: 24),
+            const Icon(Icons.warning_rounded, color: Colors.white, size: 30),
             const SizedBox(width: 8),
             Text(
-              'Alert: High Status > ${_alertPercentageThreshold.toStringAsFixed(1)}% (${highPercentage.toStringAsFixed(1)}% | $highCount/$totalCount)',
+              'Alert: High > ${_alertPercentageThreshold.toStringAsFixed(1)}% (${highPercentage.toStringAsFixed(1)}% | $highCount/$totalCount)',
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
-                fontSize: 14,
+                fontSize: 16,
               ),
             ),
           ],
